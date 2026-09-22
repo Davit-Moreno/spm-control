@@ -228,9 +228,11 @@ if __name__ == '__main__':
     print(max_intensity0, max_intensity1)
     # Save intensities
     plot_name_root = '{}/{}'.format(folder_path, scan_name)
-    spa.plot_int_heatmap(Xs, Ys, intensity, save=True, save_name='{}.png'.format(plot_name_root))
-    spa.plot_int_heatmap(Xs, Ys, intensity_split[0], save=True, save_name='{}_ch1.png'.format(plot_name_root))
-    spa.plot_int_heatmap(Xs, Ys, intensity_split[1], save=True, save_name='{}_ch2.png'.format(plot_name_root))
+    spa.plot_int_heatmap(Xs, Ys, intensity, save=True, save_name='{}.png'.format(plot_name_root), vmin=vmin,vmax=vmax)
+
+    spa.plot_int_heatmap(Xs, Ys, intensity_split[0], save=True, save_name='{}_ch1.png'.format(plot_name_root), vmin=vmin,vmax=vmax)
+    
+    spa.plot_int_heatmap(Xs, Ys, intensity_split[1], save=True, save_name='{}_ch2.png'.format(plot_name_root), vmin=vmin,vmax=vmax)
 
     # Print stats
     if show_scan_stats:
