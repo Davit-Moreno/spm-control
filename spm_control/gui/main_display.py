@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import customtkinter as ctk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 
 from spm_control.gui.modes import page_helpers
@@ -36,24 +35,7 @@ class MainDisplay:
         self.source = source
         self.metadata = metadata or {}
 
-        self.toolbar_frame = ctk.CTkFrame(self.mini_display, fg_color="transparent")
-        self.toolbar_frame.pack(side="bottom", fill="x")
-
-        self.canvas_frame = ctk.CTkFrame(self.mini_display, fg_color="transparent")
-        self.canvas_frame.pack(side="top", fill="both", expand=True)
-
-        self.canvas = FigureCanvasTkAgg(figure, master=self.canvas_frame)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
-
-        self.toolbar = NavigationToolbar2Tk(
-            self.canvas,
-            self.toolbar_frame,
-            pack_toolbar=False
-        )
-        self.toolbar.update()
-        self.toolbar.pack(side="bottom", fill="x")
-
-        self.canvas.draw_idle()
+        self.canvas = page_helpers.embedFigure(self.mini_display, figure)
         return self.canvas
 
     def display_image(self, file_path):
@@ -101,6 +83,12 @@ class MainDisplay:
         self.source = None
         self.metadata = {}
 
+        file_display = getattr(self.app, "file_display", None)
+
+        if file_display is not None:
+            file_display.set_secondary_path("")
+        # Any new view ends a comparison, so the compared file's path is cleared too
+
     def has_selectable_plot(self):
         if self.figure is None or self.axes is None or self.canvas is None:
             return False
@@ -125,57 +113,61 @@ class MainDisplay:
 
 
     def display_selected_file(self, selected_file):
-        path = Path(selected_file)
-        extension = path.suffix.lower()
+        scan = spa.find_scan_data(selected_file)
 
-        if extension == ".txt" and path.stem.endswith("_scan_data"):
-            figure, image, colorbar = spa.display_saved_raster_plot(path, channel=0)
-
-            self.display_plot(
-                figure=figure,
-                axes=image.axes,
-                source="saved_raster",
-                metadata={
-                    "data_file": path,
-                    "channel": 0,
-                    "image": image,
-                    "colorbar": colorbar
-                }
-            )
+        if scan is None:
+            self.display_file(selected_file)
             return
 
-        if extension == ".png":
-            stem = path.stem
-            channel = 0
+        data_path, channel = scan
 
-            if stem.endswith("_ch1"):
-                base = stem.removesuffix("_ch1")
-                channel = 1
-            elif stem.endswith("_ch2"):
-                base = stem.removesuffix("_ch2")
-                channel = 2
-            else:
-                base = stem
+        if not data_path.exists():
+            raise FileNotFoundError(f"Could not find raster data file: {data_path}")
 
-            data_path = path.parent / f"{base}_scan_data.txt"
+        figure, image, colorbar = spa.display_saved_raster_plot(data_path, channel)
 
-            if not data_path.exists():
-                raise FileNotFoundError(f"Could not find raster data file: {data_path}")
+        metadata = {
+            "data_file": data_path,
+            "channel": channel,
+            "image": image,
+            "colorbar": colorbar
+        }
 
+        if Path(selected_file).suffix.lower() == ".png":
+            metadata["image_file"] = Path(selected_file)
+
+        self.display_plot(
+            figure=figure,
+            axes=image.axes,
+            source="saved_raster",
+            metadata=metadata
+        )
+
+    def display_side_by_side(self, left_file, right_file):
+        figures = []
+
+        for selected_file in (left_file, right_file):
+            scan = spa.find_scan_data(selected_file)
+
+            if scan is None or not scan[0].exists():
+                raise ValueError(f"Not a raster scan with saved data: {selected_file}")
+
+            data_path, channel = scan
             figure, image, colorbar = spa.display_saved_raster_plot(data_path, channel)
 
-            self.display_plot(
-                figure=figure,
-                axes=image.axes,
-                source="saved_raster",
-                metadata={
-                    "data_file": data_path,
-                    "image_file": path,
-                    "channel": channel,
-                    "image": image,
-                    "colorbar": colorbar
-                }
-            )
-            return
+            image.axes.set_title(f"{data_path.stem.removesuffix('_scan_data')}\n{image.axes.get_title()}")
+            figure.set_layout_engine("tight")
+            # Refits labels and colorbar whenever the half-width frame resizes
+            figures.append(figure)
+        # Both files load before the display is cleared, so a bad file leaves the current view in place
 
-        self.display_file(selected_file)
+        self.clear()
+
+        left_frame = page_helpers.createFrame(self.mini_display, "left_plot", [0, 0, 0.5, 1])
+        right_frame = page_helpers.createFrame(self.mini_display, "right_plot", [0.5, 0, 0.5, 1])
+
+        page_helpers.embedFigure(left_frame, figures[0])
+        page_helpers.embedFigure(right_frame, figures[1])
+
+        self.source = "side_by_side"
+        # self.figure stays None, so point selection asks for a single plot instead of ignoring one side

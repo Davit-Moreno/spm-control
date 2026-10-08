@@ -1,8 +1,10 @@
 import numpy as np
 from copy import copy
+from pathlib import Path
 from matplotlib.figure import Figure
 from matplotlib import cm
 from matplotlib.colors import Normalize
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 def pixel_extent(xlim, ylim, shape):
@@ -41,7 +43,10 @@ def create_live_raster_plot(xlim, ylim, shape, vmin=None, vmax=None):
     ax.set_ylabel("Y (µm)")
     ax.set_title("Combined Channels")
 
-    colorbar = fig.colorbar(image, ax=ax, label="Intensity (counts/s)")
+    divider = make_axes_locatable(ax)
+    colorbar_axes = divider.append_axes("right", size="5%", pad=0.1)
+    colorbar = fig.colorbar(image, cax=colorbar_axes, label="Intensity (counts/s)")
+    # Attached to the image's side so the colorbar is always as tall as the image
     fig.tight_layout()
 
     return fig, image, colorbar
@@ -91,6 +96,32 @@ def save_raster_plot(intensities, x_nodes, y_nodes, output_path, title):
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
 
 
+
+def find_scan_data(file_path):
+    """
+    Returns the scan data file and channel behind a raster scan file,
+    or None if the file is not a raster scan
+    """
+    path = Path(file_path)
+    extension = path.suffix.lower()
+
+    if extension == ".txt":
+        return (path, 0) if path.stem.endswith("_scan_data") else None
+
+    if extension != ".png":
+        return None
+
+    stem = path.stem
+    channel = 0
+
+    if stem.endswith("_ch1"):
+        stem = stem.removesuffix("_ch1")
+        channel = 1
+    elif stem.endswith("_ch2"):
+        stem = stem.removesuffix("_ch2")
+        channel = 2
+
+    return path.parent / f"{stem}_scan_data.txt", channel
 
 def display_saved_raster_plot(file_path, channel=0, vmin=None, vmax=None):
     data = np.loadtxt(file_path, dtype=float, delimiter=",")

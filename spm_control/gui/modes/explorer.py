@@ -1,8 +1,6 @@
-from pathlib import Path
-from tkinter import filedialog
-
 from spm_control.gui.modes import page_helpers
 from spm_control.gui.layout import MAIN_LAYOUT
+from spm_control.scan import scan_plot_and_analysis as spa
 
 
 class Explorer_Page:
@@ -105,43 +103,87 @@ class Explorer_Page:
             self.select_and_display_file
         )
 
+        p.compare_row = None
+        self.update_compare_button()
+
     def select_and_display_file(self):
         p = self.panels["option_parameters"]
 
-        filter_name = p.entries["filter_name"].get().strip()
-        extension = p.entries["extension"].get().strip().lstrip(".")
-
-        if extension:
-            filetypes = [
-                (f"{extension.upper()} files", f"*.{extension}"),
-                ("All files", "*.*")
-            ]
-        else:
-            filetypes = [("All files", "*.*")]
-
-        selected_file = filedialog.askopenfilename(
-            title="Open File",
-            filetypes=filetypes
+        selected_file = page_helpers.askForFile(
+            "Open File",
+            extension=p.entries["extension"].get(),
+            name_filter=p.entries["filter_name"].get()
         )
 
-        if not selected_file:
-            return
-
-        file_name = Path(selected_file).name
-
-        if (
-            filter_name
-            and filter_name.casefold() not in file_name.casefold()
-        ):
-            page_helpers.throwError(
-                f"Selected file does not contain '{filter_name}'."
-            )
+        if selected_file is None:
             return
 
         try:
-            self.app.file_display.set_path(selected_file)
             self.app.main_display.display_selected_file(selected_file)
+            self.app.file_display.set_path(selected_file)
             print("Selected file:", selected_file)
+
+        except Exception as error:
+            page_helpers.throwError(str(error))
+
+        self.update_compare_button()
+
+    def update_compare_button(self):
+        """
+        Shows the Compare button only while a raster scan occupies the display
+        """
+        p = self.panels["option_parameters"]
+
+        if p.compare_row is not None:
+            p.compare_row.destroy()
+            p.compare_row = None
+
+        if not self.current_file_is_scan():
+            return
+
+        p.compare_row = page_helpers.createFrame(
+            p,
+            "compare_row",
+            [0.35, 0.83, 0.3, 0.05]
+        )
+
+        p.compare = page_helpers.createButton(
+            p.compare_row,
+            "Compare with...",
+            5,
+            self.select_and_compare_files
+        )
+
+    def current_file_is_scan(self):
+        if self.app.hardware_manager.get_operation() == "raster_scan":
+            return False
+        # While scanning, the live plot is shown but the path bar still holds the previous file
+
+        current_file = page_helpers.get_file(self.app.file_display)
+
+        if not current_file:
+            return False
+
+        scan = spa.find_scan_data(current_file)
+        return scan is not None and scan[0].exists()
+
+    def select_and_compare_files(self):
+        p = self.panels["option_parameters"]
+
+        left_file = page_helpers.get_file(self.app.file_display)
+        right_file = page_helpers.askForFile(
+            "Pick file to compare",
+            extension=p.entries["extension"].get(),
+            name_filter=p.entries["filter_name"].get()
+        )
+
+        if right_file is None:
+            return
+
+        try:
+            self.app.main_display.display_side_by_side(left_file, right_file)
+            self.app.file_display.set_secondary_path(right_file)
+            print("Comparing:", left_file, "with", right_file)
 
         except Exception as error:
             page_helpers.throwError(str(error))
