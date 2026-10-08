@@ -4,6 +4,7 @@ from matplotlib.figure import Figure
 from matplotlib import cm
 
 from spm_control.work_in_progress_legacy_scripts import scan_plot_and_analysis as spa
+from spm_control.scan.scan_plot_and_analysis import pixel_extent
 import spm_control.core_config as core_config
 
 
@@ -40,7 +41,7 @@ def create_filtered_scan_plot(file_path, channel):
     plot = ax.imshow(
         filtered.T,
         origin="lower",
-        extent=(Xs.min(), Xs.max(), Ys.min(), Ys.max()),
+        extent=pixel_extent((Xs.min(), Xs.max()), (Ys.min(), Ys.max()), Xs.shape),
         cmap=cmap,
         vmin=lower,
         vmax=upper,

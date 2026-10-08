@@ -5,6 +5,19 @@ from matplotlib import cm
 from matplotlib.colors import Normalize
 
 
+def pixel_extent(xlim, ylim, shape):
+    """
+    Widens the first and last scan positions by half a pixel on each side,
+    so every pixel is centered on the position it was measured at
+    """
+    x_count, y_count = shape
+
+    x_half = (xlim[1] - xlim[0]) / (2 * (x_count - 1)) if x_count > 1 else 0.5
+    y_half = (ylim[1] - ylim[0]) / (2 * (y_count - 1)) if y_count > 1 else 0.5
+    # A single row or column has no step to measure, so it gets a 1 µm wide pixel
+
+    return (xlim[0] - x_half, xlim[1] + x_half, ylim[0] - y_half, ylim[1] + y_half)
+
 def create_live_raster_plot(xlim, ylim, shape, vmin=None, vmax=None):
     fig = Figure(dpi=100)
     ax = fig.add_subplot(111)
@@ -17,7 +30,7 @@ def create_live_raster_plot(xlim, ylim, shape, vmin=None, vmax=None):
     image = ax.imshow(
         initial_data.T,
         origin="lower",
-        extent=(*xlim, *ylim),
+        extent=pixel_extent(xlim, ylim, shape),
         cmap=cmap,
         norm=Normalize(vmin=vmin, vmax=vmax),
         interpolation="none",
@@ -62,7 +75,7 @@ def save_raster_plot(intensities, x_nodes, y_nodes, output_path, title):
     image = ax.imshow(
         intensities.T,
         origin="lower",
-        extent=(x_nodes[0], x_nodes[-1], y_nodes[0], y_nodes[-1]),
+        extent=pixel_extent((x_nodes[0], x_nodes[-1]), (y_nodes[0], y_nodes[-1]), intensities.shape),
         vmin=0,
         vmax=vmax,
         interpolation="none",
