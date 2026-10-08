@@ -129,7 +129,7 @@ class MainDisplay:
         extension = path.suffix.lower()
 
         if extension == ".txt" and path.stem.endswith("_scan_data"):
-            figure, image, colorbar = spa.create_saved_raster_plot(path, channel=0)
+            figure, image, colorbar = spa.display_saved_raster_plot(path, channel=0)
 
             self.display_plot(
                 figure=figure,
@@ -162,7 +162,7 @@ class MainDisplay:
             if not data_path.exists():
                 raise FileNotFoundError(f"Could not find raster data file: {data_path}")
 
-            figure, image, colorbar = spa.create_saved_raster_plot(data_path, channel)
+            figure, image, colorbar = spa.display_saved_raster_plot(data_path, channel)
 
             self.display_plot(
                 figure=figure,

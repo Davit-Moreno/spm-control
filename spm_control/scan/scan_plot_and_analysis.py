@@ -40,7 +40,7 @@ def update_live_raster_plot(fig, image, colorbar, intensities):
     valid = displayed[np.isfinite(displayed)]
 
     if valid.size:
-        new_min = float(valid.min())
+        new_min = 0.0
         new_max = float(valid.max())
 
         if new_min == new_max:
@@ -79,7 +79,7 @@ def save_raster_plot(intensities, x_nodes, y_nodes, output_path, title):
 
 
 
-def create_saved_raster_plot(file_path, channel=0, vmin=None, vmax=None):
+def display_saved_raster_plot(file_path, channel=0, vmin=None, vmax=None):
     data = np.loadtxt(file_path, dtype=float, delimiter=",")
 
     if data.ndim == 1:
@@ -145,7 +145,7 @@ def create_saved_raster_plot(file_path, channel=0, vmin=None, vmax=None):
     valid = intensities[np.isfinite(intensities)]
 
     if valid.size:
-        display_min = float(valid.min()) if vmin is None else float(vmin)
+        display_min = 0.0 if vmin is None else float(vmin)
         display_max = float(valid.max()) if vmax is None else float(vmax)
 
         if display_min == display_max:
