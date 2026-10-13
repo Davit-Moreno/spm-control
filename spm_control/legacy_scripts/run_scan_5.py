@@ -37,10 +37,10 @@ def get_exp_num(folder_path, suff):
             most_recent = max(int(num), most_recent)
     return most_recent + 1
 
-z_focus = 11.2 #µm (0 - 20)
-xlim = (50, 100) # µm (0 - 100
-ylim = (50, 100) # µm (0 - 100)
-resolution = 1 # um (>= 0.2) diffraction limit ~200 nm (.2)
+z_focus = 9.6 #µm (0 - 20)
+xlim = (10, 15) # µm (0 - 100
+ylim = (87, 92) # µm (0 - 100)
+resolution = .2 # um (>= 0.2) diffraction limit ~200 nm (.2)
 SPAD_Warning_Thresh = 10**6
 
 #    THESE ARE ONLY PARAMETERS YOU NEED TO CHANGE
@@ -226,13 +226,14 @@ if __name__ == '__main__':
     t2=time.time()
 
     print(max_intensity0, max_intensity1)
+
     # Save intensities
     plot_name_root = '{}/{}'.format(folder_path, scan_name)
-    spa.plot_int_heatmap(Xs, Ys, intensity, save=True, save_name='{}.png'.format(plot_name_root), vmin=vmin,vmax=vmax)
+    spa.plot_int_heatmap(Xs, Ys, intensity, save=True, save_name='{}.png'.format(plot_name_root), vmin=np.min(intensity), vmax=np.max(intensity))
 
-    spa.plot_int_heatmap(Xs, Ys, intensity_split[0], save=True, save_name='{}_ch1.png'.format(plot_name_root), vmin=vmin,vmax=vmax)
-    
-    spa.plot_int_heatmap(Xs, Ys, intensity_split[1], save=True, save_name='{}_ch2.png'.format(plot_name_root), vmin=vmin,vmax=vmax)
+    spa.plot_int_heatmap(Xs, Ys, intensity_split[0], save=True, save_name='{}_ch1.png'.format(plot_name_root), vmin=np.min(intensity_split[0]), vmax=np.max(intensity_split[0]))
+
+    spa.plot_int_heatmap(Xs, Ys, intensity_split[1], save=True, save_name='{}_ch2.png'.format(plot_name_root), vmin=np.min(intensity_split[1]), vmax=np.max(intensity_split[1]))
 
     # Print stats
     if show_scan_stats:

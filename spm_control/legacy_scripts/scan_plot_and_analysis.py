@@ -31,7 +31,7 @@ def plot_int_heatmap(Xs, Ys, channel_ints, size=(8, 8), save=False, save_name='s
     
     fig, ax = plt.subplots(1, 1, figsize=size)
 
-    plot = ax.pcolor(Xs, Ys, channel_ints, cmap='viridis', shading='auto', vmin=vmin, vmax=vmin)
+    plot = ax.pcolor(Xs, Ys, channel_ints, cmap='viridis', shading='auto', vmin=vmin, vmax=vmax)
     ax.set_aspect('equal')
 
     divider = make_axes_locatable(ax)
