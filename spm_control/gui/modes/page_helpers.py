@@ -444,20 +444,21 @@ def get_file(file_display):
     """
     return file_display.get_path()
 
-def askForFile(title, extension="", name_filter=""):
+def askForFile(title, extension="", name_filter="", allow_all=True):
     """
     Opens a file picker limited to an extension if one is given,
     and only accepts files whose name contains name_filter.
+    allow_all=False removes the "All files" choice from the picker.
     Returns None if nothing valid was picked
     """
     extension = extension.strip().lstrip(".")
     name_filter = name_filter.strip()
 
     if extension:
-        filetypes = [
-            (f"{extension.upper()} files", f"*.{extension}"),
-            ("All files", "*.*")
-        ]
+        filetypes = [(f"{extension.upper()} files", f"*.{extension}")]
+
+        if allow_all:
+            filetypes.append(("All files", "*.*"))
     else:
         filetypes = [("All files", "*.*")]
 
@@ -482,6 +483,9 @@ def askForFile(title, extension="", name_filter=""):
 
 def throwError(message):
     messagebox.showerror("Error", message)
+
+def throwWarning(message):
+    messagebox.showwarning("Warning", message)
 
 def displayImage(frame, image_source):
     for widget in frame.winfo_children():
@@ -570,6 +574,26 @@ def embedFigure(parent, figure):
 
     canvas.draw_idle()
     return canvas
+
+def popOutFigure(root, figure, title, offset=0):
+    """
+    Opens a Matplotlib figure in its own window in front of the app,
+    offset is used so several windows don't open exactly on top of each other
+    """
+    window = ctk.CTkToplevel(root)
+    window.title(title)
+    window.geometry(f"900x650+{100 + 40 * offset}+{80 + 40 * offset}")
+    window.minsize(450, 350)
+
+    embedFigure(window, figure)
+
+    window.lift()
+    window.focus()
+    window.attributes("-topmost", True)
+    window.after(300, lambda: window.attributes("-topmost", False))
+    # Briefly kept on top so it opens in front of the app, then behaves like a normal window
+
+    return window
 
 def confirmation(msg, T = "Confirm",nextCall = None):
     """

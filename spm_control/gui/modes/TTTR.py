@@ -1,5 +1,6 @@
 from tkinter import messagebox
 
+from spm_control.analysis import plotting
 from spm_control.gui.modes import config, page_helpers
 from spm_control.gui.layout import MAIN_LAYOUT
 from spm_control.gui.modes.point_selector import PointSelector
@@ -29,10 +30,22 @@ class TTTR_Page:
         self.point_selector = None
         self.entries = {}
 
+        self.tttr_results = None
+        self.plot_windows = []
+
         self.OpenTTTRMenu()
         self.build_mode_ops()
 
     def begin_point_selection(self):
+        if self.app.main_display.source not in ("live_raster", "saved_raster", "filtered_raster"):
+            messagebox.showerror(
+                "No Raster Scan",
+                "Select Point needs a raster scan on the display. Open one from the Folder Menu first.",
+                parent=self.app
+            )
+            return
+        # Clicking any other plot, like an intensity trace, would send its time and counts to the stage as a position
+
         try:
             canvas, axes = self.app.main_display.get_active_plot()
         except RuntimeError as error:
@@ -166,17 +179,132 @@ class TTTR_Page:
     def OpenPlotterMenu(self):
         p = page_helpers.reload_panel(self.panels, MAIN_LAYOUT, "option_parameters")
         p.checkboxes = {}
+        p.entries = {}
 
         p.title_frame = page_helpers.createFrame(p, "title_frame", [0, 0, 1, 0.1], outline=True)
         p.title_frame.pack_propagate(False)
         p.title = page_helpers.createLabel(p.title_frame, "TTTR Plotting Menu", sz=24, side="top", y_space=(4, 4))
 
-        p.first_row = page_helpers.createFrame(p, "first_row", [0.1, 0.12, 0.4, 0.05])
-        p.checkboxes["CSV"] = page_helpers.createCheckbox(p.first_row, "Create CSV", lambda: print("HELLO WORLD"))
+        p.first_row = page_helpers.createFrame(p, "first_row", [0.1, 0.12, 0.6, 0.05])
+        p.checkboxes["intensity"] = page_helpers.createCheckbox(
+            p.first_row,
+            "Intensity",
+            lambda result_file, settings, title: plotting.create_intensity_plot(result_file, title=title)
+        )
 
-        p.first_row = page_helpers.createFrame(p, "first_row", [0.1, 0.12, 0.4, 0.05])
-        p.checkboxes["CSV"] = page_helpers.createCheckbox(p.first_row, "Create CSV File", lambda: print("HELLO WORLD"))
-    
+        p.second_row = page_helpers.createFrame(p, "second_row", [0.1, 0.19, 0.6, 0.05])
+        p.checkboxes["g2"] = page_helpers.createCheckbox(
+            p.second_row,
+            "g2",
+            lambda result_file, settings, title: plotting.create_g2_plot(
+                result_file,
+                float(settings["repetition_rate"]) * 1e6,
+                title=title
+            )
+        )
+        # Each checkbox keeps the function that makes its plot, run later by Plot for the checked boxes
+
+        try:
+            saved_rate = core_config.load_named_settings("tttr_plot", self.Scan_Config).get("repetition_rate", 1)
+        except KeyError:
+            saved_rate = 1
+
+        p.third_row = page_helpers.createFrame(p, "third_row", [0.1, 0.29, 0.7, 0.05])
+        p.entries["repetition_rate"] = page_helpers.createSingleEntry(p.third_row, "Rep Rate (MHz)", numbered_entry=True, placeholder=str(saved_rate))
+        page_helpers.bind_entry(p.entries["repetition_rate"], min_val=0.001, max_val=1000)
+        # The saved rate is shown as the placeholder, so leaving the box empty keeps it
+
+        p.measurement_row = page_helpers.createFrame(p, "measurement_row", [0.05, 0.72, 0.9, 0.14])
+        p.measurement_label = page_helpers.createLabel(p.measurement_row, "No measurement selected", sz=14, side="top", wraplength=230)
+
+        p.fourth_row = page_helpers.createFrame(p, "fourth_row", [0.0625, 0.9, 0.4, 0.05])
+        p.select_measurement = page_helpers.createButton(p.fourth_row, "Select Measurement", 5, self.select_measurement)
+
+        p.fifth_row = page_helpers.createFrame(p, "fifth_row", [0.5375, 0.9, 0.4, 0.05])
+        p.plot = page_helpers.createButton(p.fifth_row, "Plot", 5, self.plot_measurement, color="green", hcolor="#14532D")
+
+        self.plotter_panel = p
+
+        if self.tttr_results is not None:
+            p.measurement_label.configure(text=self.tttr_results["measurement"].name)
+
+    def select_measurement(self):
+        selected_file = page_helpers.askForFile("Select Measurement", extension="ptu", allow_all=False)
+
+        if selected_file is None:
+            return
+
+        results = plotting.find_tttr_results(selected_file)
+
+        if results is None:
+            page_helpers.throwError("Please select a .ptu file.")
+            return
+
+        self.tttr_results = results
+        self.plotter_panel.measurement_label.configure(text=results["measurement"].name)
+
+    def plot_measurement(self):
+        if self.tttr_results is None:
+            page_helpers.throwError("Please select a measurement first.")
+            return
+
+        if not any(checkbox.get() for checkbox in self.plotter_panel.checkboxes.values()):
+            page_helpers.throwError("Please check at least one plot.")
+            return
+
+        try:
+            config.update(self.plotter_panel.entries, "tttr_plot", self.Scan_Config, nextCall=self.create_tttr_plots, emptyOk=True)
+        except Exception as error:
+            page_helpers.throwError(str(error))
+
+    def create_tttr_plots(self):
+        settings = core_config.load_named_settings("tttr_plot", self.Scan_Config)
+        name = self.tttr_results["measurement"].stem
+
+        plots = []
+        skipped = []
+
+        for key, checkbox in self.plotter_panel.checkboxes.items():
+            if not checkbox.get():
+                continue
+
+            result_file = self.tttr_results[key]
+
+            if result_file is None:
+                skipped.append(f"{key}: no {key} file found in this measurement's .run folders")
+                continue
+
+            try:
+                plots.append((key, result_file, checkbox.delayed_command(result_file, settings, f"{key} · {name}")))
+            except ValueError as error:
+                skipped.append(f"{key}: {error}")
+        # Missing or unreadable results are collected into one warning instead of stopping the other plots
+
+        if skipped:
+            page_helpers.throwWarning("Some plots were skipped:\n\n" + "\n".join(skipped))
+
+        if plots:
+            self.show_tttr_plots(plots)
+
+    def show_tttr_plots(self, plots):
+        for window in self.plot_windows:
+            if window.winfo_exists():
+                window.destroy()
+
+        self.plot_windows = []
+        # Windows from the previous Plot are closed so they don't pile up
+
+        if len(plots) == 1:
+            key, result_file, figure = plots[0]
+            self.app.main_display.display_plot(figure, source="tttr_plot")
+            self.app.file_display.set_path(result_file)
+            return
+
+        for offset, (key, result_file, figure) in enumerate(plots):
+            title = f"{key} · {self.tttr_results['measurement'].stem}"
+            self.plot_windows.append(page_helpers.popOutFigure(self.app, figure, title, offset=offset))
+        # Several plots each open in their own window in front, leaving the raster on the main display
+
 
     def build_mode_ops(self):
         options_loadout = {"select_point": self.OpenTTTRMenu, "g2_plot": self.OpenPlotterMenu}
