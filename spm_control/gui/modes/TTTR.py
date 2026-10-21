@@ -447,9 +447,12 @@ class TTTR_Page:
             return
 
         if p.sum.get():
-            channels = ("sum",)
+            channels = (0, 1)
+            fit_channels = ("sum",)
         else:
             channels = {"Ch. 0": (0,), "Ch. 1": (1,), "Both": (0, 1)}[p.channel.get()]
+            fit_channels = None
+        # With Sum, Ch. 0 and Ch. 1 are drawn in blue and red and only their sum is fitted, as one black line
         fits = [model for model, checkbox in p.fit_options.items() if checkbox.get()]
         options = {name: checkbox.get() for name, checkbox in p.display_options.items()}
 
@@ -459,6 +462,7 @@ class TTTR_Page:
                 title=f"trPL · {self.tttr_results['measurement'].stem}",
                 channels=channels,
                 fits=fits,
+                fit_channels=fit_channels,
                 fit_start=fit_start,
                 fit_end=fit_end,
                 background_points=background_points,

@@ -260,6 +260,7 @@ def create_g1_plot(
     title="trPL",
     channels=(0, 1),
     fits=(),
+    fit_channels=None,
     fit_start=None,
     fit_end=None,
     subtract_background=True,
@@ -270,7 +271,9 @@ def create_g1_plot(
     residuals=False
 ):
     """
-    Plots the trPL decay of each channel with optional mono and bi-exponential fits.
+    Plots the trPL decay of each channel in channels, with optional mono and bi-exponential
+    fits of each channel in fit_channels (default: the same channels). fit_channels can
+    include "sum", which is fitted without drawing its points.
     Returns the figure and the fit results so they can be saved
     """
     decays = load_g1(g1_file, subtract_background, background_points, background_from, normalize, align_peak)
@@ -287,7 +290,13 @@ def create_g1_plot(
     line_styles = {"mono": "--", "bi": "-"}
     results = []
 
-    for key in channels:
+    if fit_channels is None:
+        fit_channels = channels
+
+    keys = list(channels) + [key for key in fit_channels if key not in channels]
+    # Channels whose points are drawn, then anything fitted without being drawn, like the sum
+
+    for key in keys:
         if key not in decays:
             if key == "sum":
                 raise ValueError("the SPADs in this g1 file don't share the same time bins, so they can't be added")
@@ -295,10 +304,14 @@ def create_g1_plot(
 
         times, decay, sigma = decays[key]
         color, dark = colors.get(key, ("grey", "black"))
-        shown = decay > 0
 
-        ax.plot(times[shown], decay[shown], "o", ms=3, color=color, alpha=0.6, label=channel_name(key))
+        if key in channels:
+            shown = decay > 0
+            ax.plot(times[shown], decay[shown], "o", ms=3, color=color, alpha=0.6, label=channel_name(key))
         # Points at or below zero can't be drawn on a log axis
+
+        if key not in fit_channels:
+            continue
 
         for model in fits:
             try:
