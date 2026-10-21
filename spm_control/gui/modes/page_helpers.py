@@ -114,7 +114,21 @@ def createFrame(parent, name, dimensions, outline = False):
     )
 
     parent.frames[name] = frame
+    frame.dimensions = dimensions
+    # Kept so showFrame can put the frame back after it's hidden with place_forget
     return frame
+
+def showFrame(frame):
+    """
+    Puts a frame hidden with place_forget back where createFrame first placed it,
+    since place() with no arguments doesn't remember the old position
+    """
+    frame.place(
+        relx=frame.dimensions[0],
+        rely=frame.dimensions[1],
+        relwidth=frame.dimensions[2],
+        relheight=frame.dimensions[3],
+    )
 
 def createToolbar(parent, loadout, button_size, horizontal=True):
     """

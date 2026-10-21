@@ -366,38 +366,43 @@ class TTTR_Page:
         p.bi_row = page_helpers.createFrame(p, "bi_row", [0.53, 0.12, 0.42, 0.05])
         p.fit_options["bi"] = page_helpers.createCheckbox(p.bi_row, "Bi Fit", default=True, font_size=14)
 
-        p.channel_row = page_helpers.createFrame(p, "channel_row", [0.05, 0.19, 0.9, 0.06])
+        p.sum_row = page_helpers.createFrame(p, "sum_row", [0.05, 0.19, 0.42, 0.05])
+        p.sum = page_helpers.createCheckbox(p.sum_row, "Sum SPADs", default=True, font_size=14)
+        p.sum.configure(command=self.sum_toggled)
+        # Runs as soon as Sum is clicked, unlike delayed_command which waits for a button
+
+        p.channel_row = page_helpers.createFrame(p, "channel_row", [0.05, 0.26, 0.9, 0.06])
         p.channel = page_helpers.createSelection(p.channel_row, ["Ch. 0", "Ch. 1", "Both"], default="Both", spacing=6)
 
-        p.normalize_row = page_helpers.createFrame(p, "normalize_row", [0.05, 0.27, 0.42, 0.05])
+        p.normalize_row = page_helpers.createFrame(p, "normalize_row", [0.05, 0.34, 0.42, 0.05])
         p.display_options["normalize"] = page_helpers.createCheckbox(p.normalize_row, "Normalize", default=True, font_size=14)
-        p.align_row = page_helpers.createFrame(p, "align_row", [0.53, 0.27, 0.42, 0.05])
+        p.align_row = page_helpers.createFrame(p, "align_row", [0.53, 0.34, 0.42, 0.05])
         p.display_options["align_peak"] = page_helpers.createCheckbox(p.align_row, "Peak at 0", default=True, font_size=14)
 
-        p.background_row = page_helpers.createFrame(p, "background_row", [0.05, 0.34, 0.42, 0.05])
+        p.background_row = page_helpers.createFrame(p, "background_row", [0.05, 0.41, 0.42, 0.05])
         p.display_options["subtract_background"] = page_helpers.createCheckbox(p.background_row, "Background", default=True, font_size=14)
-        p.residual_row = page_helpers.createFrame(p, "residual_row", [0.53, 0.34, 0.42, 0.05])
+        p.residual_row = page_helpers.createFrame(p, "residual_row", [0.53, 0.41, 0.42, 0.05])
         p.display_options["residuals"] = page_helpers.createCheckbox(p.residual_row, "Residuals", font_size=14)
 
-        p.from_row = page_helpers.createFrame(p, "from_row", [0.05, 0.41, 0.9, 0.06])
+        p.from_row = page_helpers.createFrame(p, "from_row", [0.05, 0.48, 0.9, 0.06])
         p.from_label = page_helpers.createLabel(p.from_row, "From:", sz=14, side="left", x_space=(10, 0))
         p.background_from = page_helpers.createSelection(p.from_row, ["End", "Start"], default="End", spacing=6)
         # The end is after the decay has died out, the start is before the pulse arrives, both are only background
 
-        p.points_row = page_helpers.createFrame(p, "points_row", [0.1, 0.49, 0.8, 0.05])
+        p.points_row = page_helpers.createFrame(p, "points_row", [0.1, 0.56, 0.8, 0.05])
         p.entries["background_points"] = page_helpers.createSingleEntry(p.points_row, "Background Points", numbered_entry=True, placeholder="10")
         page_helpers.bind_entry(p.entries["background_points"], min_val=1, max_val=500, multi=1, emptyOk=True)
 
-        p.start_row = page_helpers.createFrame(p, "start_row", [0.1, 0.56, 0.8, 0.05])
+        p.start_row = page_helpers.createFrame(p, "start_row", [0.1, 0.63, 0.8, 0.05])
         p.entries["fit_start"] = page_helpers.createSingleEntry(p.start_row, "Fit Start (ns)", numbered_entry=True, placeholder="peak")
         page_helpers.bind_entry(p.entries["fit_start"], min_val=-1000, max_val=1000, emptyOk=True)
 
-        p.end_row = page_helpers.createFrame(p, "end_row", [0.1, 0.63, 0.8, 0.05])
+        p.end_row = page_helpers.createFrame(p, "end_row", [0.1, 0.7, 0.8, 0.05])
         p.entries["fit_end"] = page_helpers.createSingleEntry(p.end_row, "Fit End (ns)", numbered_entry=True, placeholder="end")
         page_helpers.bind_entry(p.entries["fit_end"], min_val=-1000, max_val=1000, emptyOk=True)
         # Empty boxes mean the defaults shown in grey, times are read off the plot's x-axis
 
-        p.measurement_row = page_helpers.createFrame(p, "measurement_row", [0.05, 0.71, 0.9, 0.14])
+        p.measurement_row = page_helpers.createFrame(p, "measurement_row", [0.05, 0.77, 0.9, 0.11])
         p.measurement_label = page_helpers.createLabel(p.measurement_row, "Select a measurement in the Plotting Menu", sz=14, side="top", wraplength=230)
 
         if self.tttr_results is not None:
@@ -410,6 +415,17 @@ class TTTR_Page:
         p.save = page_helpers.createButton(p.save_row, "Save", 5, self.save_analysis)
 
         self.analysis_panel = p
+        self.sum_toggled()
+        # Sum starts checked, so the channel options start hidden
+
+    def sum_toggled(self):
+        p = self.analysis_panel
+
+        if p.sum.get():
+            p.channel_row.place_forget()
+        else:
+            page_helpers.showFrame(p.channel_row)
+        # The channel choice only matters when the SPADs aren't summed
 
     def read_number(self, entry, default=None):
         raw_value = entry.get().strip()
@@ -430,7 +446,10 @@ class TTTR_Page:
             page_helpers.throwError("Background Points, Fit Start and Fit End must be numbers.")
             return
 
-        channels = {"Ch. 0": (0,), "Ch. 1": (1,), "Both": (0, 1)}[p.channel.get()]
+        if p.sum.get():
+            channels = ("sum",)
+        else:
+            channels = {"Ch. 0": (0,), "Ch. 1": (1,), "Both": (0, 1)}[p.channel.get()]
         fits = [model for model, checkbox in p.fit_options.items() if checkbox.get()]
         options = {name: checkbox.get() for name, checkbox in p.display_options.items()}
 
@@ -456,7 +475,7 @@ class TTTR_Page:
         self.app.main_display.display_plot(figure, axes=figure.axes[0], source="tttr_plot")
         self.app.file_display.set_path(self.tttr_results["g1"])
 
-        failed = [f"Ch. {result['channel']} {result['model']}: {result['error']}" for result in results if "error" in result]
+        failed = [f"{plotting.channel_name(result['channel'])} {result['model']}: {result['error']}" for result in results if "error" in result]
 
         if failed:
             page_helpers.throwWarning("Some fits failed:\n\n" + "\n".join(failed))

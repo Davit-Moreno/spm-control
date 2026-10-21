@@ -122,9 +122,9 @@ def plot_save_path(result_file, key):
 
 def load_g1(g1_file, subtract_background=True, background_points=10, background_from="end", normalize=True, align_peak=True):
     """
-    Reads a g1 (trPL) file into times, counts and count errors for each channel.
-    The background is the mean of the first or last background_points of each channel,
-    and align_peak moves the Ch. 0 peak to t = 0 like the G1 plotter test
+    Reads a g1 (trPL) file into times, counts and count errors for each channel,
+    plus "sum": both SPADs added bin by bin. The background is the mean of the first
+    or last background_points, and align_peak moves the peak to t = 0
     """
     data = np.atleast_2d(np.genfromtxt(g1_file, delimiter=","))
 
@@ -135,11 +135,16 @@ def load_g1(g1_file, subtract_background=True, background_points=10, background_
     times = (bin_start + bin_end) / 2 / 1000
     # Bin edges are in ps, times are in ns at the middle of each bin
 
+    numbers = np.unique(channel).astype(int)
+    raw = {number: (times[channel == number], counts[channel == number]) for number in numbers}
+
+    if all(np.array_equal(raw[number][0], raw[numbers[0]][0]) for number in numbers):
+        raw["sum"] = (raw[numbers[0]][0], sum(raw[number][1] for number in numbers))
+    # Both SPADs see the same emitter through the beam splitter, so adding them bin by bin gives one decay with more counts
+
     decays = {}
 
-    for number in np.unique(channel).astype(int):
-        in_channel = channel == number
-        decay = counts[in_channel].astype(float)
+    for key, (key_times, decay) in raw.items():
         sigma = np.sqrt(np.maximum(decay, 1))
         # Photon counts have √N noise, kept so the fit can weight each point
 
@@ -152,15 +157,18 @@ def load_g1(g1_file, subtract_background=True, background_points=10, background_
             sigma = sigma / decay.max()
             decay = decay / decay.max()
 
-        decays[number] = (times[in_channel], decay, sigma)
+        decays[key] = (key_times, decay, sigma)
 
     if align_peak and decays:
-        reference = 0 if 0 in decays else min(decays)
+        reference = "sum" if "sum" in decays else next(iter(decays))
         peak_time = decays[reference][0][np.argmax(decays[reference][1])]
-        decays = {number: (t - peak_time, decay, sigma) for number, (t, decay, sigma) in decays.items()}
-    # Every channel shifts by the same amount so they stay lined up
+        decays = {key: (t - peak_time, decay, sigma) for key, (t, decay, sigma) in decays.items()}
+    # Everything shifts by the summed decay's peak so the channels and the sum stay lined up
 
     return decays
+
+def channel_name(key):
+    return "Ch. 0 + Ch. 1" if key == "sum" else f"Ch. {key}"
 
 def mono_exp(t, A, tau, B):
     return A * np.exp(-t / tau) + B
@@ -174,7 +182,10 @@ def fit_decay(times, decay, sigma, model, fit_start=None, fit_end=None):
     Fits a mono or bi-exponential decay from fit_start (default: the peak)
     to fit_end (default: the last point), times are in ns
     """
-    from scipy.optimize import curve_fit
+    try:
+        from scipy.optimize import curve_fit
+    except ImportError:
+        raise ValueError("scipy isn't installed, run  ..\\.venv\\Scripts\\python.exe -m pip install -e .  in spm-control") from None
     # Imported here so the rest of the app still starts if scipy isn't installed
 
     start = times[np.argmax(decay)] if fit_start is None else fit_start
@@ -272,36 +283,38 @@ def create_g1_plot(
         ax = fig.add_subplot(111)
         residual_ax = None
 
-    colors = {0: ("blue", "navy"), 1: ("red", "darkred")}
+    colors = {0: ("blue", "navy"), 1: ("red", "darkred"), "sum": ("dimgray", "black")}
     line_styles = {"mono": "--", "bi": "-"}
     results = []
 
-    for number in channels:
-        if number not in decays:
+    for key in channels:
+        if key not in decays:
+            if key == "sum":
+                raise ValueError("the SPADs in this g1 file don't share the same time bins, so they can't be added")
             continue
 
-        times, decay, sigma = decays[number]
-        color, dark = colors.get(number, ("grey", "black"))
+        times, decay, sigma = decays[key]
+        color, dark = colors.get(key, ("grey", "black"))
         shown = decay > 0
 
-        ax.plot(times[shown], decay[shown], "o", ms=3, color=color, alpha=0.6, label=f"Ch. {number}")
+        ax.plot(times[shown], decay[shown], "o", ms=3, color=color, alpha=0.6, label=channel_name(key))
         # Points at or below zero can't be drawn on a log axis
 
         for model in fits:
             try:
                 fit = fit_decay(times, decay, sigma, model, fit_start, fit_end)
             except (RuntimeError, ValueError) as error:
-                ax.plot([], [], line_styles[model], color=dark, label=f"Ch. {number} {model}: fit failed")
-                results.append({"channel": number, "model": model, "error": str(error)})
+                ax.plot([], [], line_styles[model], color=dark, label=f"{channel_name(key)} {model}: fit failed")
+                results.append({"channel": key, "model": model, "error": str(error)})
                 continue
             # A fit that doesn't converge is noted in the legend instead of losing the whole plot
 
-            ax.plot(fit["times"], fit["curve"], line_styles[model], color=dark, lw=2, label=f"Ch. {number} {model}: {describe_fit(fit)}")
+            ax.plot(fit["times"], fit["curve"], line_styles[model], color=dark, lw=2, label=f"{channel_name(key)} {model}: {describe_fit(fit)}")
 
             if residual_ax is not None:
                 residual_ax.plot(fit["times"], fit["residuals"], "o", ms=2, color=dark, alpha=0.7)
 
-            results.append({"channel": number, **fit})
+            results.append({"channel": key, **fit})
 
     ax.set_yscale("log")
 
@@ -328,10 +341,10 @@ def save_fit_results(results, output_path, g1_file):
 
     for result in results:
         if "error" in result:
-            lines.append(f"Ch. {result['channel']} {result['model']}: fit failed ({result['error']})")
+            lines.append(f"{channel_name(result['channel'])} {result['model']}: fit failed ({result['error']})")
             continue
 
-        lines.append(f"Ch. {result['channel']} {result['model']}-exponential, fit from {result['start']:g} to {result['end']:g} ns")
+        lines.append(f"{channel_name(result['channel'])} {result['model']}-exponential, fit from {result['start']:g} to {result['end']:g} ns")
 
         for name, value in result["params"].items():
             unit = " ns" if name.startswith("tau") else ""
