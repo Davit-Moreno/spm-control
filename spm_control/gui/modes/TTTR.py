@@ -32,6 +32,9 @@ class TTTR_Page:
 
         self.tttr_results = None
         self.plot_windows = []
+        self.last_plots = []
+        self.analysis_figure = None
+        self.analysis_results = []
 
         self.OpenTTTRMenu()
         self.build_mode_ops()
@@ -192,7 +195,15 @@ class TTTR_Page:
             lambda result_file, settings, title: plotting.create_intensity_plot(result_file, title=title)
         )
 
-        p.second_row = page_helpers.createFrame(p, "second_row", [0.1, 0.19, 0.6, 0.05])
+        p.g1_row = page_helpers.createFrame(p, "g1_row", [0.1, 0.19, 0.6, 0.05])
+        p.checkboxes["g1"] = page_helpers.createCheckbox(
+            p.g1_row,
+            "g1 (trPL)",
+            lambda result_file, settings, title: plotting.create_g1_plot(result_file, title=title)[0]
+        )
+        # Uses the same defaults as the G1 plotter test, the trPL Analysis menu has the fitting options
+
+        p.second_row = page_helpers.createFrame(p, "second_row", [0.1, 0.26, 0.6, 0.05])
         p.checkboxes["g2"] = page_helpers.createCheckbox(
             p.second_row,
             "g2",
@@ -209,7 +220,7 @@ class TTTR_Page:
         except KeyError:
             saved_rate = 1
 
-        p.third_row = page_helpers.createFrame(p, "third_row", [0.1, 0.29, 0.7, 0.05])
+        p.third_row = page_helpers.createFrame(p, "third_row", [0.1, 0.36, 0.7, 0.05])
         p.entries["repetition_rate"] = page_helpers.createSingleEntry(p.third_row, "Rep Rate (MHz)", numbered_entry=True, placeholder=str(saved_rate))
         page_helpers.bind_entry(p.entries["repetition_rate"], min_val=0.001, max_val=1000)
         # The saved rate is shown as the placeholder, so leaving the box empty keeps it
@@ -217,11 +228,14 @@ class TTTR_Page:
         p.measurement_row = page_helpers.createFrame(p, "measurement_row", [0.05, 0.72, 0.9, 0.14])
         p.measurement_label = page_helpers.createLabel(p.measurement_row, "No measurement selected", sz=14, side="top", wraplength=230)
 
-        p.fourth_row = page_helpers.createFrame(p, "fourth_row", [0.0625, 0.9, 0.4, 0.05])
-        p.select_measurement = page_helpers.createButton(p.fourth_row, "Select Measurement", 5, self.select_measurement)
+        p.fourth_row = page_helpers.createFrame(p, "fourth_row", [0.0625, 0.9, 0.25, 0.05])
+        p.select_measurement = page_helpers.createButton(p.fourth_row, "Select", 5, self.select_measurement)
 
-        p.fifth_row = page_helpers.createFrame(p, "fifth_row", [0.5375, 0.9, 0.4, 0.05])
+        p.fifth_row = page_helpers.createFrame(p, "fifth_row", [0.375, 0.9, 0.25, 0.05])
         p.plot = page_helpers.createButton(p.fifth_row, "Plot", 5, self.plot_measurement, color="green", hcolor="#14532D")
+
+        p.sixth_row = page_helpers.createFrame(p, "sixth_row", [0.6875, 0.9, 0.25, 0.05])
+        p.save = page_helpers.createButton(p.sixth_row, "Save", 5, self.save_tttr_plots)
 
         self.plotter_panel = p
 
@@ -292,7 +306,8 @@ class TTTR_Page:
                 window.destroy()
 
         self.plot_windows = []
-        # Windows from the previous Plot are closed so they don't pile up
+        self.last_plots = plots
+        # Windows from the previous Plot are closed so they don't pile up, the new plots are kept for Save
 
         if len(plots) == 1:
             key, result_file, figure = plots[0]
@@ -306,8 +321,162 @@ class TTTR_Page:
         # Several plots each open in their own window in front, leaving the raster on the main display
 
 
+    def save_figures(self, saves):
+        """
+        Saves (figure, path) pairs, asking once before replacing files that already exist.
+        A None figure means the path is the trPL fit results text file
+        """
+        existing = [path.name for figure, path in saves if path.exists()]
+
+        def save():
+            for figure, path in saves:
+                if figure is None:
+                    plotting.save_fit_results(self.analysis_results, path, self.tttr_results["g1"])
+                else:
+                    figure.savefig(path, dpi=300, bbox_inches="tight")
+
+            folders = sorted({path.parent.name for figure, path in saves})
+            messagebox.showinfo("Saved", "Saved " + ", ".join(path.name for figure, path in saves) + " in\n" + "\n".join(folders), parent=self.app)
+
+        if existing:
+            page_helpers.confirmation(f"{', '.join(existing)} already {'exists' if len(existing) == 1 else 'exist'}. Replace?", nextCall=save)
+        else:
+            save()
+
+    def save_tttr_plots(self):
+        if not self.last_plots:
+            page_helpers.throwError("Please plot something first.")
+            return
+
+        self.save_figures([(figure, plotting.plot_save_path(result_file, key)) for key, result_file, figure in self.last_plots])
+        # Each plot is saved next to its data with the old scripts' names, like g2plot.png in the .g2.run folder
+
+    def OpenAnalysisMenu(self):
+        p = page_helpers.reload_panel(self.panels, MAIN_LAYOUT, "option_parameters")
+        p.fit_options = {}
+        p.display_options = {}
+        p.entries = {}
+
+        p.title_frame = page_helpers.createFrame(p, "title_frame", [0, 0, 1, 0.1], outline=True)
+        p.title_frame.pack_propagate(False)
+        p.title = page_helpers.createLabel(p.title_frame, "trPL Analysis", sz=24, side="top", y_space=(4, 4))
+
+        p.mono_row = page_helpers.createFrame(p, "mono_row", [0.05, 0.12, 0.42, 0.05])
+        p.fit_options["mono"] = page_helpers.createCheckbox(p.mono_row, "Mono Fit", font_size=14)
+        p.bi_row = page_helpers.createFrame(p, "bi_row", [0.53, 0.12, 0.42, 0.05])
+        p.fit_options["bi"] = page_helpers.createCheckbox(p.bi_row, "Bi Fit", default=True, font_size=14)
+
+        p.channel_row = page_helpers.createFrame(p, "channel_row", [0.05, 0.19, 0.9, 0.06])
+        p.channel = page_helpers.createSelection(p.channel_row, ["Ch. 0", "Ch. 1", "Both"], default="Both", spacing=6)
+
+        p.normalize_row = page_helpers.createFrame(p, "normalize_row", [0.05, 0.27, 0.42, 0.05])
+        p.display_options["normalize"] = page_helpers.createCheckbox(p.normalize_row, "Normalize", default=True, font_size=14)
+        p.align_row = page_helpers.createFrame(p, "align_row", [0.53, 0.27, 0.42, 0.05])
+        p.display_options["align_peak"] = page_helpers.createCheckbox(p.align_row, "Peak at 0", default=True, font_size=14)
+
+        p.background_row = page_helpers.createFrame(p, "background_row", [0.05, 0.34, 0.42, 0.05])
+        p.display_options["subtract_background"] = page_helpers.createCheckbox(p.background_row, "Background", default=True, font_size=14)
+        p.residual_row = page_helpers.createFrame(p, "residual_row", [0.53, 0.34, 0.42, 0.05])
+        p.display_options["residuals"] = page_helpers.createCheckbox(p.residual_row, "Residuals", font_size=14)
+
+        p.from_row = page_helpers.createFrame(p, "from_row", [0.05, 0.41, 0.9, 0.06])
+        p.from_label = page_helpers.createLabel(p.from_row, "From:", sz=14, side="left", x_space=(10, 0))
+        p.background_from = page_helpers.createSelection(p.from_row, ["End", "Start"], default="End", spacing=6)
+        # The end is after the decay has died out, the start is before the pulse arrives, both are only background
+
+        p.points_row = page_helpers.createFrame(p, "points_row", [0.1, 0.49, 0.8, 0.05])
+        p.entries["background_points"] = page_helpers.createSingleEntry(p.points_row, "Background Points", numbered_entry=True, placeholder="10")
+        page_helpers.bind_entry(p.entries["background_points"], min_val=1, max_val=500, multi=1, emptyOk=True)
+
+        p.start_row = page_helpers.createFrame(p, "start_row", [0.1, 0.56, 0.8, 0.05])
+        p.entries["fit_start"] = page_helpers.createSingleEntry(p.start_row, "Fit Start (ns)", numbered_entry=True, placeholder="peak")
+        page_helpers.bind_entry(p.entries["fit_start"], min_val=-1000, max_val=1000, emptyOk=True)
+
+        p.end_row = page_helpers.createFrame(p, "end_row", [0.1, 0.63, 0.8, 0.05])
+        p.entries["fit_end"] = page_helpers.createSingleEntry(p.end_row, "Fit End (ns)", numbered_entry=True, placeholder="end")
+        page_helpers.bind_entry(p.entries["fit_end"], min_val=-1000, max_val=1000, emptyOk=True)
+        # Empty boxes mean the defaults shown in grey, times are read off the plot's x-axis
+
+        p.measurement_row = page_helpers.createFrame(p, "measurement_row", [0.05, 0.71, 0.9, 0.14])
+        p.measurement_label = page_helpers.createLabel(p.measurement_row, "Select a measurement in the Plotting Menu", sz=14, side="top", wraplength=230)
+
+        if self.tttr_results is not None:
+            p.measurement_label.configure(text=self.tttr_results["measurement"].name)
+
+        p.update_row = page_helpers.createFrame(p, "update_row", [0.0625, 0.9, 0.4, 0.05])
+        p.update = page_helpers.createButton(p.update_row, "Update", 5, self.update_analysis, color="green", hcolor="#14532D")
+
+        p.save_row = page_helpers.createFrame(p, "save_row", [0.5375, 0.9, 0.4, 0.05])
+        p.save = page_helpers.createButton(p.save_row, "Save", 5, self.save_analysis)
+
+        self.analysis_panel = p
+
+    def read_number(self, entry, default=None):
+        raw_value = entry.get().strip()
+        return default if raw_value == "" else float(raw_value)
+
+    def update_analysis(self):
+        if self.tttr_results is None or self.tttr_results["g1"] is None:
+            page_helpers.throwError("Please select a measurement with trPL (g1) results in the Plotting Menu first.")
+            return
+
+        p = self.analysis_panel
+
+        try:
+            background_points = int(self.read_number(p.entries["background_points"], default=10))
+            fit_start = self.read_number(p.entries["fit_start"])
+            fit_end = self.read_number(p.entries["fit_end"])
+        except ValueError:
+            page_helpers.throwError("Background Points, Fit Start and Fit End must be numbers.")
+            return
+
+        channels = {"Ch. 0": (0,), "Ch. 1": (1,), "Both": (0, 1)}[p.channel.get()]
+        fits = [model for model, checkbox in p.fit_options.items() if checkbox.get()]
+        options = {name: checkbox.get() for name, checkbox in p.display_options.items()}
+
+        try:
+            figure, results = plotting.create_g1_plot(
+                self.tttr_results["g1"],
+                title=f"trPL · {self.tttr_results['measurement'].stem}",
+                channels=channels,
+                fits=fits,
+                fit_start=fit_start,
+                fit_end=fit_end,
+                background_points=background_points,
+                background_from=p.background_from.get().lower(),
+                **options
+            )
+        except ValueError as error:
+            page_helpers.throwError(str(error))
+            return
+
+        self.analysis_figure = figure
+        self.analysis_results = results
+
+        self.app.main_display.display_plot(figure, axes=figure.axes[0], source="tttr_plot")
+        self.app.file_display.set_path(self.tttr_results["g1"])
+
+        failed = [f"Ch. {result['channel']} {result['model']}: {result['error']}" for result in results if "error" in result]
+
+        if failed:
+            page_helpers.throwWarning("Some fits failed:\n\n" + "\n".join(failed))
+
+    def save_analysis(self):
+        if self.analysis_figure is None:
+            page_helpers.throwError("Please click Update first.")
+            return
+
+        plot_path = plotting.plot_save_path(self.tttr_results["g1"], "g1")
+        saves = [(self.analysis_figure, plot_path)]
+
+        if self.analysis_results:
+            saves.append((None, plot_path.with_name("trplfit.txt")))
+        # trplplot.png and trplfit.txt go in the .g1.run folder next to the g1 data
+
+        self.save_figures(saves)
+
     def build_mode_ops(self):
-        options_loadout = {"select_point": self.OpenTTTRMenu, "g2_plot": self.OpenPlotterMenu}
+        options_loadout = {"select_point": self.OpenTTTRMenu, "g2_plot": self.OpenPlotterMenu, "trPL": self.OpenAnalysisMenu}
         page_helpers.createToolbar(self.mode_options, options_loadout, 0.08)
 
     def cleanup(self):
